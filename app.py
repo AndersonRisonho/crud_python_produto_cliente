@@ -138,9 +138,12 @@ CREATE TABLE IF NOT EXISTS sales (
     total REAL NOT NULL,
     date TEXT NOT NULL,
     commission_pct REAL DEFAULT 5,
+    payment_method TEXT DEFAULT '—',
+    installments INTEGER DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'Pendente',
     FOREIGN KEY(client_id) REFERENCES clients(id),
     FOREIGN KEY(seller_id) REFERENCES sellers(id)
+    
 )
 ''')
 conn.commit()
@@ -1333,13 +1336,12 @@ class SalesWidget(QtWidgets.QWidget):
         total_layout.addWidget(self.lbl_total)
         self.vbox.addLayout(total_layout)
 
-        # Status de pagamento (moderno)
+        # Status de pagamento (COMBO MODERNO)
         status_layout = QtWidgets.QHBoxLayout()
         lbl_status = QtWidgets.QLabel("Status Pagamento:")
         lbl_status.setStyleSheet("font-weight:700; font-size:14px; color:#2c3e50;")
         self.status_combo = QtWidgets.QComboBox()
         self.status_combo.addItem("-- Selecione --", None)
-        self.status_combo.addItem("Pago", "Pago")
         self.status_combo.addItem("Pendente", "Pendente")
         self.status_combo.currentIndexChanged.connect(self.update_status_color)
         self.update_status_color()
@@ -1602,7 +1604,7 @@ class SalesHistoryWidget(QtWidgets.QWidget):
         self.dashboard = dashboard  # referência ao dashboard para atualizar cards
         self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setSpacing(10)
-        self.vbox.setContentsMargins(16,16,16,16)
+        self.vbox.setContentsMargins(16, 16, 16, 16)
         self.setup_ui()
         self.load_sales()
 
@@ -1633,7 +1635,6 @@ class SalesHistoryWidget(QtWidgets.QWidget):
         self.refresh_btn.clicked.connect(self.load_sales)
         btn_layout.addWidget(self.refresh_btn)
 
-    
         # Botão deletar
         self.delete_btn = QtWidgets.QPushButton("🗑️ Deletar Venda")
         self.delete_btn.setStyleSheet("""
@@ -1654,9 +1655,7 @@ class SalesHistoryWidget(QtWidgets.QWidget):
         """)
         self.delete_btn.clicked.connect(self.delete_sale)
         btn_layout.addWidget(self.delete_btn)
-    
-        
-    
+
         # Botão cancelar
         self.cancel_btn = QtWidgets.QPushButton("❌ Cancelar Venda")
         self.cancel_btn.setStyleSheet("""
@@ -1703,8 +1702,8 @@ class SalesHistoryWidget(QtWidgets.QWidget):
 
         # Rodapé de ajuda
         self.lbl_help = QtWidgets.QLabel(
-            "💡 Dica: Selecione uma venda e clique em 'Realizar Pagamento' para marcar como paga.\n\n"
-            "💡 Dica: Dê um clique duplo no item da grade para abrir as informações da venda."
+            "💡 Dica: Selecione uma venda e clique em 'Realizar Pagamento'.\n\n"
+            "💡 Dica: Dê um clique duplo no item da grade para abrir os detalhes da venda."
         )
         self.lbl_help.setStyleSheet("color: #7f8c8d; font-size: 12px; font-style: italic; padding:6px;")
         self.lbl_help.setAlignment(QtCore.Qt.AlignCenter)
@@ -1718,8 +1717,8 @@ class SalesHistoryWidget(QtWidgets.QWidget):
 
         # Tabela de vendas
         self.sales_table = QtWidgets.QTableWidget()
-        self.sales_table.setColumnCount(6)
-        self.sales_table.setHorizontalHeaderLabels(["ID", "Cliente", "Vendedor", "Data", "Total", "Status"])
+        self.sales_table.setColumnCount(7)
+        self.sales_table.setHorizontalHeaderLabels(["ID", "Cliente", "Vendedor", "Data", "Total", "Status", "Pagamento"])
         self.sales_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.sales_table.verticalHeader().setVisible(False)
         self.sales_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -1732,13 +1731,14 @@ class SalesHistoryWidget(QtWidgets.QWidget):
     def load_sales(self):
         self.sales_table.setRowCount(0)
         cursor.execute("""
-            SELECT s.id, c.name, sel.name, s.date, s.total, s.status
+            SELECT s.id, c.name, sel.name, s.date, s.total, s.status,
+                   COALESCE(s.payment_method, '—')
             FROM sales s
             JOIN clients c ON s.client_id = c.id
             JOIN sellers sel ON s.seller_id = sel.id
             ORDER BY s.date DESC
         """)
-        for i, (sid, client, seller, date, total, status) in enumerate(cursor.fetchall()):
+        for i, (sid, client, seller, date, total, status, payment_method) in enumerate(cursor.fetchall()):
             self.sales_table.insertRow(i)
 
             # ID
@@ -1756,16 +1756,16 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             cell_seller.setTextAlignment(QtCore.Qt.AlignCenter)
             self.sales_table.setItem(i, 2, cell_seller)
 
-            # Data - formata para DD/MM/YYYY
+            # Data formatada
             from datetime import datetime
             try:
-                if len(date) > 10:  # caso venha com hora
+                if len(date) > 10:
                     dt = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
                 else:
                     dt = datetime.strptime(date, "%Y-%m-%d")
                 formatted_date = dt.strftime("%d/%m/%Y")
             except ValueError:
-                formatted_date = date  # se não conseguir converter, mantém original
+                formatted_date = date
 
             cell_date = QtWidgets.QTableWidgetItem(formatted_date)
             cell_date.setTextAlignment(QtCore.Qt.AlignCenter)
@@ -1780,18 +1780,22 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             cell_status = QtWidgets.QTableWidgetItem(status)
             cell_status.setTextAlignment(QtCore.Qt.AlignCenter)
             if status.lower() == "pago":
-                cell_status.setBackground(QtGui.QColor("#2ecc71"))  # verde
+                cell_status.setBackground(QtGui.QColor("#2ecc71"))
                 cell_status.setForeground(QtGui.QColor("white"))
             elif status.lower() == "pendente":
-                cell_status.setBackground(QtGui.QColor("#e74c3c"))  # vermelho
+                cell_status.setBackground(QtGui.QColor("#e74c3c"))
                 cell_status.setForeground(QtGui.QColor("white"))
             elif status.lower() == "cancelada":
-                cell_status.setBackground(QtGui.QColor("#e67e22"))  # laranja
+                cell_status.setBackground(QtGui.QColor("#e67e22"))
                 cell_status.setForeground(QtGui.QColor("white"))
             self.sales_table.setItem(i, 5, cell_status)
 
-        self.update_buttons()
+            # Forma de Pagamento
+            cell_payment = QtWidgets.QTableWidgetItem(payment_method)
+            cell_payment.setTextAlignment(QtCore.Qt.AlignCenter)
+            self.sales_table.setItem(i, 6, cell_payment)
 
+        self.update_buttons()
 
     # habilitar/desabilitar botões
     def update_buttons(self):
@@ -1803,7 +1807,6 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             return
 
         status = self.sales_table.item(selected, 5).text().lower()
-
         if status == "pago":
             self.cancel_btn.setEnabled(False)
             self.delete_btn.setEnabled(False)
@@ -1816,7 +1819,6 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             self.cancel_btn.setEnabled(False)
             self.delete_btn.setEnabled(True)
 
- 
     # visualizar detalhes
     def view_sale_details(self):
         selected = self.sales_table.currentRow()
@@ -1824,6 +1826,7 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             return
         sale_id = int(self.sales_table.item(selected, 0).text())
 
+        # Buscar itens da venda
         cursor.execute("""
             SELECT p.name, si.quantity, si.subtotal
             FROM sales_items si
@@ -1832,11 +1835,55 @@ class SalesHistoryWidget(QtWidgets.QWidget):
         """, (sale_id,))
         items = cursor.fetchall()
 
-        details = "Itens da venda:\n\n"
+        # Buscar informações da venda
+        cursor.execute("""
+            SELECT c.name, sel.name, s.date, s.status, s.total,
+                COALESCE(s.payment_method, '—'), COALESCE(s.installments, 1)
+            FROM sales s
+            JOIN clients c ON s.client_id = c.id
+            JOIN sellers sel ON s.seller_id = sel.id
+            WHERE s.id=?
+        """, (sale_id,))
+        client, seller, date, status, total, payment_method, installments = cursor.fetchone()
+
+        # Formatar data
+        from datetime import datetime
+        try:
+            if len(date) > 10:
+                dt = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
+            else:
+                dt = datetime.strptime(date, "%Y-%m-%d")
+            formatted_date = dt.strftime("%d/%m/%Y")
+        except ValueError:
+            formatted_date = date
+
+        # Formatar forma de pagamento
+        if payment_method.lower() == "cartão" and installments > 1:
+            payment_display = f"{payment_method} ({installments}x)"
+        else:
+            payment_display = payment_method
+
+        # Emojis de status
+        status_icon = ""
+        if status.lower() == "pago":
+            status_icon = "✅"
+        elif status.lower() == "pendente":
+            status_icon = "⏳"
+        elif status.lower() == "cancelada":
+            status_icon = "❌"
+
+        # Montar detalhes
+        details = f"📄 Resumo da Venda ID {sale_id}\n"
+        details += f"Cliente: {client}\nVendedor: {seller}\nData: {formatted_date}\n"
+        details += f"Status: {status_icon} {status}\nTotal: {format_currency(total)}\n"
+        details += f"Forma de Pagamento: {payment_display}\n\n"
+        details += "🛒 Itens da venda:\n"
         for name, qty, subtotal in items:
             details += f"{name} - Qtd: {qty} - Subtotal: {format_currency(subtotal)}\n"
 
         QtWidgets.QMessageBox.information(self, "Detalhes da Venda", details)
+
+
 
     # Deletar venda
     def delete_sale(self):
@@ -1929,9 +1976,40 @@ class SalesHistoryWidget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "Pagamento", "✅ Esta venda já está paga.")
             return
 
+        # Escolher forma de pagamento
+        payment_dialog = QtWidgets.QInputDialog(self)
+        payment_dialog.setWindowTitle("Forma de Pagamento")
+        payment_dialog.setLabelText("Selecione a forma de pagamento:")
+        payment_dialog.setComboBoxItems(["Dinheiro", "Cartão"])
+        ok = payment_dialog.exec_()
+
+        if not ok:
+            return
+
+        payment_method = payment_dialog.textValue()
+        installments = 1
+
+        # Se for cartão, perguntar número de parcelas
+        if payment_method == "Cartão":
+            parcels_dialog = QtWidgets.QInputDialog(self)
+            parcels_dialog.setWindowTitle("Parcelamento")
+            parcels_dialog.setLabelText("Escolha o número de parcelas:")
+            parcels_dialog.setComboBoxItems([f"{i}x" for i in range(1, 13)])
+            ok = parcels_dialog.exec_()
+            if not ok:
+                return
+            parcels_text = parcels_dialog.textValue()
+            installments = int(parcels_text.replace("x", ""))
+
+        # Confirmação final
         msg = QtWidgets.QMessageBox(self)
+        if payment_method == "Cartão":
+            payment_display = f"{payment_method} ({installments}x)"
+        else:
+            payment_display = payment_method
+
         msg.setWindowTitle("Confirmar Pagamento")
-        msg.setText(f"Confirma o pagamento da venda ID {sale_id}?")
+        msg.setText(f"Confirma o pagamento da venda ID {sale_id} via {payment_display}?")
         msg.setIcon(QtWidgets.QMessageBox.Question)
         msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         msg.button(QtWidgets.QMessageBox.Yes).setText("Sim, Pagar")
@@ -1940,13 +2018,27 @@ class SalesHistoryWidget(QtWidgets.QWidget):
         if confirm != QtWidgets.QMessageBox.Yes:
             return
 
-        cursor.execute("UPDATE sales SET status='Pago' WHERE id=?", (sale_id,))
+        # Atualiza no banco
+        cursor.execute("""
+            UPDATE sales 
+            SET status='Pago', payment_method=?, installments=? 
+            WHERE id=?
+        """, (payment_method, installments, sale_id))
         conn.commit()
+
+        # Atualizar tabela e dashboard
         self.load_sales()
         if self.dashboard:
             self.dashboard.refresh()
-        QtWidgets.QMessageBox.information(self, "Sucesso", "💳 Pagamento realizado com sucesso!")
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Sucesso",
+            f"💳 Pagamento realizado com sucesso!\n\nForma de Pagamento: {payment_display}"
+        )
 # -------------------------------------------- FIM CONSULTAS VENDAS ----------------------------------------------
+
+
 
 
 
@@ -2489,6 +2581,7 @@ class ClientsWidget(QtWidgets.QWidget):
 
 
 
+
 # ----------------------------------------- PRODUTOS ------------------------------------------------------
 class ProductsWidget(QtWidgets.QWidget):
     def __init__(self, current_user):
@@ -2633,6 +2726,9 @@ class ProductsWidget(QtWidgets.QWidget):
         for r, row in enumerate(cursor.fetchall()):
             self.table.insertRow(r)
             for c, v in enumerate(row):
+                # Formata preço e valor total com duas casas decimais
+                if c == 2:  # coluna "Preço"
+                    v = f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 item = QtWidgets.QTableWidgetItem(str(v))
                 item.setTextAlignment(QtCore.Qt.AlignCenter)
                 self.table.setItem(r, c, item)
@@ -2702,12 +2798,32 @@ class ProductsWidget(QtWidgets.QWidget):
         if row < 0:
             QtWidgets.QMessageBox.warning(self, "Alerta", "Selecione um produto!")
             return
+
         pid = int(self.table.item(row, 0).text())
-        cursor.execute("DELETE FROM products WHERE id=?", (pid,))
-        conn.commit()
-        self.load_products()
-        self.clear_inputs()
-        QtWidgets.QMessageBox.information(self, "Sucesso", "Produto excluído!")
+        nome = self.table.item(row, 1).text()
+
+        # Verifica se o produto já foi vendido
+        cursor.execute("SELECT COUNT(*) FROM sales_items WHERE product_id=?", (pid,))
+        vendas = cursor.fetchone()[0]
+        if vendas > 0:
+            QtWidgets.QMessageBox.warning(self, "Alerta", f"Produto '{nome}' não pode ser excluído, pois já possui '{vendas}' vendas!")
+            return
+
+        # Confirmação de exclusão
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirmação",
+            f"Tem certeza que deseja excluir o produto '{nome}'?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+
+        if reply == QtWidgets.QMessageBox.Yes:
+            cursor.execute("DELETE FROM products WHERE id=?", (pid,))
+            conn.commit()
+            self.load_products()
+            self.clear_inputs()
+            QtWidgets.QMessageBox.information(self, "Sucesso", "Produto excluído!")
 
     # ---------------------- UTILITÁRIOS ----------------------
     def clear_inputs(self):
@@ -2731,7 +2847,7 @@ class ProductsWidget(QtWidgets.QWidget):
         for row in range(self.table.rowCount()):
             hide = filtro not in self.table.item(row, 1).text().lower()
             self.table.setRowHidden(row, hide)
-
+# ----------------------------------------- FIM PRODUTOS ------------------------------------------------------
 
 
 
@@ -3441,6 +3557,7 @@ class JanelaPrincipal(QtWidgets.QMainWindow):
             self.btn_clients.hide()
             self.btn_relatorio.hide()
             self.btn_products.hide()
+            self.btn_marcas.hide()
 
         self.stack.setCurrentWidget(self.welcome)
 
