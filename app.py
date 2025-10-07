@@ -11,12 +11,10 @@ from babel.numbers import format_currency
 import csv
 from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtCore import QRegExp
-from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from PyQt5.QtWidgets import QHeaderView
 from reportlab.platypus import Image, Paragraph, Table, TableStyle, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 import os
@@ -631,7 +629,7 @@ class DashboardWidget(QtWidgets.QWidget):
         headers_map = {
             "Produtos": ["Código", "Produto", "Valor Total"],
             "Usuários": ["Código", "Usuário"],
-            "Último Produto": ["Código", "Produto", "Preço", "Quantidade", "Valor Total"],
+            "Último Produto": ["Código", "Produto", "Preço", "Quantidade", "Valor Total","Marca"],
             "Último Usuário": ["Código", "Usuário", "Perfil"],
             "Último Cliente": ["Código", "Cliente", "Email", "Telefone","Data de Nascimento"],
             "Último Vendedor": ["Código", "Vendedor", "Email", " % Comissão","Telefone", "CPF"],
@@ -753,7 +751,13 @@ class DashboardWidget(QtWidgets.QWidget):
         return cursor.fetchall()
 
     def _get_last_product_data(self):
-        cursor.execute("SELECT * FROM products ORDER BY id DESC LIMIT 1")
+        cursor.execute("""
+            SELECT p.id, p.name, p.price, p.quantidade, p.valor_total, b.name
+            FROM products p
+            INNER JOIN brands b ON p.brand_id = b.id
+            ORDER BY p.id DESC
+            LIMIT 1
+        """)
         return cursor.fetchall()
 
     def _get_last_user_data(self):
@@ -2591,9 +2595,16 @@ class ProductsWidget(QtWidgets.QWidget):
         self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setSpacing(12)
         self.vbox.setContentsMargins(20, 20, 20, 20)
+        self.vbox.setAlignment(QtCore.Qt.AlignTop)
+        
+        # Título centralizado
+        self.title_label = QtWidgets.QLabel("Gerenciamento de Produtos")
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
+        self.vbox.addWidget(self.title_label)
+
 
         self.setup_ui()
-        self.load_products()
         self.load_brands_in_combo()
 
         # Efeito fade na exibição
@@ -2685,7 +2696,10 @@ class ProductsWidget(QtWidgets.QWidget):
         """)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-
+        
+        
+        # Oculta a tabela inicialmente
+        self.table.hide()
         self.vbox.addWidget(self.table)
 
         # ------------------ Permissões ------------------
@@ -2810,21 +2824,28 @@ class ProductsWidget(QtWidgets.QWidget):
             return
 
         # Confirmação de exclusão
-        reply = QtWidgets.QMessageBox.question(
-            self,
-            "Confirmação",
-            f"Tem certeza que deseja excluir o produto '{nome}'?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.No
-        )
+        msg = QtWidgets.QMessageBox(self)
+        msg.setIcon(QtWidgets.QMessageBox.Question)
+        msg.setWindowTitle("Confirmação de Exclusão")
+        msg.setText(f"Tem certeza de que deseja excluir o produto '{nome}'?")
+        msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
 
-        if reply == QtWidgets.QMessageBox.Yes:
+        # Traduz os botões
+        botao_sim = msg.button(QtWidgets.QMessageBox.Yes)
+        botao_nao = msg.button(QtWidgets.QMessageBox.No)
+        botao_sim.setText("Sim")
+        botao_nao.setText("Não")
+
+        resposta = msg.exec_()
+
+        if resposta == QtWidgets.QMessageBox.Yes:
             cursor.execute("DELETE FROM products WHERE id=?", (pid,))
             conn.commit()
             self.load_products()
             self.clear_inputs()
-            QtWidgets.QMessageBox.information(self, "Sucesso", "Produto excluído!")
-
+            QtWidgets.QMessageBox.information(self, "Sucesso", "Produto excluído com sucesso!")
+            
+            
     # ---------------------- UTILITÁRIOS ----------------------
     def clear_inputs(self):
         self.name_input.clear()
@@ -2843,6 +2864,12 @@ class ProductsWidget(QtWidgets.QWidget):
             self.brand_input.setCurrentIndex(idx)
 
     def show_and_filter(self):
+        """Exibe a tabela e aplica o filtro"""
+        # Carrega os produtos apenas na primeira pesquisa
+        if not self.table.isVisible():
+            self.load_products()
+            self.table.show()
+
         filtro = self.name_input.text().lower()
         for row in range(self.table.rowCount()):
             hide = filtro not in self.table.item(row, 1).text().lower()
@@ -3132,7 +3159,14 @@ class UsersWidget(QtWidgets.QWidget):
         self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setSpacing(12)
         self.vbox.setContentsMargins(20, 20, 20, 20)
-
+        self.vbox.setAlignment(QtCore.Qt.AlignTop)  # layout fixo no topo
+        
+        # ------------------ Título centralizado ------------------
+        self.title_label = QtWidgets.QLabel("Gerenciamento de Usuários")
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #34495e; margin-bottom: 10px;")
+        self.vbox.addWidget(self.title_label)
+    
         self.setup_ui()
         self.load_users()
 
@@ -3377,6 +3411,7 @@ class UsersWidget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Alerta", "Não é permitido excluir o admin!")
             return
         msg = QtWidgets.QMessageBox(self)
+        
         msg.setWindowTitle("Confirmação")
         msg.setText(f"Tem certeza que deseja excluir o usuário '{username}'?")
         msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
